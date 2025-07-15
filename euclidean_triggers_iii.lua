@@ -22,9 +22,9 @@ note = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 
 pattern_offset = 11 --x position for the trigger grid 
 track = 5 -- will be updated by the track select buttons on left
-er_n = 0
-er_k = 0
-er_w = 0
+er_n = 1
+er_k = 1
+er_w = 1
 
 ticks = 0
 
@@ -60,12 +60,14 @@ grid = function(x,y,z)
 		if mute[y-1] == 1 then mute[y-1] = 0
 		else mute[y-1] = 1
 		end
-	elseif x > 3 and y > 5 then
+	elseif x > 4 and y > 5 then
 		if y == 6 then er_k = x - 4 end
 		if y == 7 then er_n = x - 4 end
 		if y == 8 then er_w = x - 4 end
+		ps("k %d n %d w %d",er_k, er_n, er_w)
 		-- call the grid fill function
-		end
+		pattern_generate()
+		redraw()
 	else
 		ps("do nothing")
 	end
@@ -85,10 +87,10 @@ redraw = function()
 		grid_led(2,n,track==n and 15 or 1)
 	end
 	-- euclidean controls
-	for n=4,16 do
-		grid_led(n,6,er_k==n+4 and 15 or 1)
-		grid_led(n,7,er_n==n+4 and 15 or 1)
-		grid_led(n,8,er_w==n+4 and 15 or 1)
+	for n=5,16 do
+		grid_led(n,6,(er_k == (n-4)) and 15 or 1)
+		grid_led(n,7,(er_n == (n-4)) and 15 or 1)
+		grid_led(n,8,(er_w == (n-4)) and 15 or 1)
 	end
 	-- pattern grid
 	for n=1,32 do
@@ -140,13 +142,18 @@ end
 
 pattern_generate = function()
    -- generate the er pattern
+   p = {}
+   p = er(er_n, er_k, er_w - 1)
+   pt(p)
    -- step through the pattern grid
    -- copy the corresponding step in the er pattern 
    -- continue until the pattern is full
    -- to do: adjust for pattern length
 
    for i=1,32 do
-	
+	if p[((i - 1) % er_n) + 1] then note[track][i] = 1 
+	else note[track][i] = 0
+	end
    end
 end
 
