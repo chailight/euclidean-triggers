@@ -9,6 +9,7 @@ midi_clock_in = true
 map = {0,1,2,3,36,37,38,39}
 
 ch = 0
+-- step = {1,1,1,1,1,1,1}
 step = 1
 mute = {0,0,0,1,1,1,1}
 last = {0,0,0,0,0,0,0}
@@ -25,12 +26,14 @@ note = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 pattern_offset = 11 --x position for the trigger grid 
 track = 5 -- will be updated by the track select buttons on left
 --todo: change er variables to be arrays - one for each track
-er_n = {1,1,1,1,1,1,1}
-er_k = {1,1,1,1,1,1,1}
-er_w = {1,1,1,1,1,1,1}
+er_n = {1,1,1,1,1,1,1,1}
+er_k = {1,1,1,1,1,1,1,1}
+er_w = {1,1,1,1,1,1,1,1}
 
 --todo: add a per track length
-len = {32, 32, 32, 32, 32, 32, 32}
+length = {32,32, 32, 32, 32, 32, 32, 32}
+
+held = 0
 
 ticks = 0
 
@@ -38,51 +41,66 @@ tick = function()
 	step = (step % 32) + 1
 	for i=1,7 do
 		if last[i] == 1 then midi_note_off(map[i+1]) end
-		last[i] = note[i+1][step] 
+		last[i] = note[i+1][step%length[i]] 
 		if last[i] == 1 and mute[i] == 1  then midi_note_on(map[i+1]) end
 	end
 	redraw()
 end
 
 grid = function(x,y,z)
-	if z==0 then return end
+	if z==0 then 
+		if y < 5 and x > 8 then
+			held = held - 1
+			ps("release %d %d, held %d", x, y, held)
+		end
+		return 
+	end
 	-- if y==1 then
 	-- if button press, which area is it in? 
-	if y < 5 and x > 8  then
-		ps("x %d y %d z %d",x,y,z)
-		i = (x-8)+((y-1)*8)
-		if note[track][i] == 1 then 
-			note[track][i] = 0
-			--ps("note off %d %d",track,i)
-		else 
-			note[track][i] = 1 
-			--ps("note on %d %d",track,i)
+	if z==1 then
+		ps("press %d %d, held %d", x, y, held)
+		if y < 5 and x > 8  then
+			held = held + 1 
+			if held == 1 then
+				ps("x %d y %d z %d",x,y,z)
+				i = (x-8)+((y-1)*8)
+				if note[track][i] == 1 then 
+					note[track][i] = 0
+					--ps("note off %d %d",track,i)
+				else 
+					note[track][i] = 1 
+					--ps("note on %d %d",track,i)
+				end
+				redraw()
+			elseif held == 2 then
+				length[track] = (x-8)+((y-1)*8)
+				ps("length %d", length[track])
+			end
+		elseif x == 2 then 
+			track = y
+			ps("track %d",track)
+		elseif x == 1 and y > 1 then
+			if mute[y-1] == 1 then mute[y-1] = 0
+			else mute[y-1] = 1
+			end
+		elseif x > 4 and y > 5 then
+			if y == 6 then er_k[track] = x - 4 end
+			if y == 7 then er_n[track] = x - 4 end
+			if y == 8 then er_w[track] = x - 4 end
+			--ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
+			-- call the grid fill function
+			pattern_generate()
+			redraw()
+		else
+			ps("do nothing")
 		end
-		redraw()
-	elseif x == 2 then 
-		track = y
-		ps("track %d %d",track)
-	elseif x == 1 and y > 1 then
-		if mute[y-1] == 1 then mute[y-1] = 0
-		else mute[y-1] = 1
-		end
-	elseif x > 4 and y > 5 then
-		if y == 6 then er_k[track] = x - 4 end
-		if y == 7 then er_n[track] = x - 4 end
-		if y == 8 then er_w[track] = x - 4 end
-		ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
-		-- call the grid fill function
-		pattern_generate()
-		redraw()
-	else
-		ps("do nothing")
 	end
 end
 
 redraw = function()
 	grid_led_all(0)
-	j = ((step - 1) % 8) + 1
-	k = math.floor((step - 1) / 8) + 1
+	j = ((step%length[track] - 1) % 8) + 1
+	k = math.floor((step%length[track] - 1) / 8) + 1
 	grid_led(j+8,k,5)
 	-- mute
 	for n=2,8 do
@@ -99,14 +117,14 @@ redraw = function()
 		grid_led(n,8,(er_w[track] == (n-4)) and 15 or 1)
 	end
 	-- pattern grid
-	for n=1,32 do
+	for n=1,length[track] do
 		x = ((n - 1) % 8) + 1
 		y = math.floor((n -1) / 8) + 1
 		if note[track][n] == 1 then
 			--ps("track %d step %d i %d", track, n, i)
-			grid_led(x+8,y,step==n and 15 or 5)
+			grid_led(x+8,y,step%length[track]==n and 15 or 5)
 		else
-			grid_led(x+8,y,step==n and 15 or 1)
+			grid_led(x+8,y,step%length[track]==n and 15 or 1)
 		end
 	end
 	grid_refresh()
@@ -156,7 +174,7 @@ pattern_generate = function()
    -- continue until the pattern is full
    -- to do: adjust for pattern length
 
-   for i=1,32 do
+   for i=1,length[track] do
 	if p[((i - 1) % er_n[track]) + 1] then note[track][i] = 1 
 	else note[track][i] = 0
 	end
