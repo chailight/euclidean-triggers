@@ -1,15 +1,16 @@
 print("step")
 
--- todo : fix er variables - out by 1
+-- todo : fix last step of a pattern not firing 
 
 -- change this to toggle clock input:
 midi_clock_in = true 
 
 -- change these for different notes:
-map = {0,1,2,3,36,37,38,39}
+--map = {0,1,2,3,36,37,38,39}
+map = {0,1,2,3,4,5,6,7}
 
 ch = 0
--- step = {1,1,1,1,1,1,1}
+steps = {1,1,1,1,1,1,1,1}
 step = 1
 mute = {0,0,0,1,1,1,1}
 last = {0,0,0,0,0,0,0}
@@ -30,22 +31,76 @@ er_n = {1,1,1,1,1,1,1,1}
 er_k = {1,1,1,1,1,1,1,1}
 er_w = {1,1,1,1,1,1,1,1}
 
+--clock dividers
+clock_divider = {6,6,6,6,6,6,6,6}
+clock_counter = {0,0,0,0,0,0,0,0}
+release_counter = {0,0,0,0,0,0,0,0}
+clock_map = {3,4,6,8,9,36}
+
 --todo: add a per track length
 length = {32,32, 32, 32, 32, 32, 32, 32}
 
+-- note tracking
+playing = {}
+
+for i = 1, 8 do
+    playing[i] = false
+end
+
+-- grid key held
 held = 0
 
+-- time management
 ticks = 0
 
-tick = function()
-	step = (step % 32) + 1
-	for i=1,7 do
-		if last[i] == 1 then midi_note_off(map[i+1]) end
-		last[i] = note[i+1][step%length[i]] 
-		if last[i] == 1 and mute[i] == 1  then midi_note_on(map[i+1]) end
+tick_old = function()
+	for i = 1, 7 do
+	    clock_counter[i+1] = clock_counter[i+1] + 1
+	    if clock_counter[i+1] >= clock_divider[i+1] then
+		clock_counter[i+1] = 0  -- reset
+	    	steps[i+1] = (steps[i+1] % length[i+1]) + 1
+	    	if last[i] == 1 then midi_note_off(map[i+1]) end
+	    	last[i] = note[i+1][steps[i+1]]
+	    	if last[i] == 1 and mute[i] == 1 then midi_note_on(map[i+1]) end
+	    end
 	end
 	redraw()
 end
+
+tick = function()
+    for i = 1, 7 do
+        clock_counter[i+1] = clock_counter[i+1] + 1
+
+        -- handle active note releases
+        if release_counter[i+1] > 0 then
+            release_counter[i+1] = release_counter[i+1] - 1
+            if release_counter[i+1] == 0 and playing[i+1] then
+                midi_note_off(map[i+1])
+                playing[i+1] = false
+            end
+        end
+
+        if clock_counter[i+1] >= clock_divider[i+1] then
+            clock_counter[i+1] = 0  -- reset divider counter
+
+            -- advance step
+            steps[i+1] = (steps[i+1] % length[i+1]) + 1
+
+            if note[i+1][steps[i+1]] == 1 and mute[i] == 1 then
+                local pitch = map[i+1]
+
+                midi_note_on(pitch)
+                playing[i+1] = true
+
+                -- schedule note off
+                release_counter[i+1] = clock_divider[i+1] - 1
+            end
+        end
+    end
+    redraw()
+end
+
+
 
 grid = function(x,y,z)
 	if z==0 then 
@@ -73,20 +128,30 @@ grid = function(x,y,z)
 				end
 				redraw()
 			elseif held == 2 then
+				if note[track][i] == 1 then
+					note[track][i] = 0
+				else
+					note[track][i] = 1
+				end
 				length[track] = (x-8)+((y-1)*8)
 				ps("length %d", length[track])
 			end
 		elseif x == 2 then 
 			track = y
+			midi_cc(127,track - 1) -- set the current "track" indicator
 			ps("track %d",track)
 		elseif x == 1 and y > 1 then
 			if mute[y-1] == 1 then mute[y-1] = 0
 			else mute[y-1] = 1
 			end
+		elseif x > 10 and y == 8 then
+			clock_divider[track] = clock_map[x - 10]
+    			--ps("clock divider for track %d: %d", track, clock_divider[track])
+			redraw()
 		elseif x > 4 and y > 5 then
 			if y == 6 then er_k[track] = x - 4 end
 			if y == 7 then er_n[track] = x - 4 end
-			if y == 8 then er_w[track] = x - 4 end
+			if y == 8 and x < 11 then er_w[track] = x - 4 end
 			--ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
 			-- call the grid fill function
 			pattern_generate()
@@ -99,8 +164,8 @@ end
 
 redraw = function()
 	grid_led_all(0)
-	j = ((step%length[track] - 1) % 8) + 1
-	k = math.floor((step%length[track] - 1) / 8) + 1
+	j = ((steps[track]%length[track] - 1) % 8) + 1
+	k = math.floor((steps[track]%length[track] - 1) / 8) + 1
 	grid_led(j+8,k,5)
 	-- mute
 	for n=2,8 do
@@ -114,7 +179,13 @@ redraw = function()
 	for n=5,16 do
 		grid_led(n,6,(er_k[track] == (n-4)) and 15 or 1)
 		grid_led(n,7,(er_n[track] == (n-4)) and 15 or 1)
+	end
+	for n=5,10 do
 		grid_led(n,8,(er_w[track] == (n-4)) and 15 or 1)
+	end
+	-- clock divider 
+	for n=11,16 do
+		grid_led(n,8,(clock_divider[track] == clock_map[n - 10]) and 15 or 1)
 	end
 	-- pattern grid
 	for n=1,length[track] do
@@ -122,9 +193,9 @@ redraw = function()
 		y = math.floor((n -1) / 8) + 1
 		if note[track][n] == 1 then
 			--ps("track %d step %d i %d", track, n, i)
-			grid_led(x+8,y,step%length[track]==n and 15 or 5)
+			grid_led(x+8,y,steps[track]%(length[track]+1)==n and 15 or 5)
 		else
-			grid_led(x+8,y,step%length[track]==n and 15 or 1)
+			grid_led(x+8,y,steps[track]%(length[track]+1)==n and 15 or 1)
 		end
 	end
 	grid_refresh()
@@ -132,7 +203,7 @@ end
 
 midi_rx = function(d1,d2,d3,d4)
 	if d1==8 and d2==240 then
-		ticks = ((ticks + 1) % 6)
+		ticks = ((ticks + 1) % 1)
 		if ticks == 0 and midi_clock_in then tick() end
 	else
 		ps("midi_rx %d %d %d %d",d1,d2,d3,d4)
