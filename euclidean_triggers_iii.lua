@@ -52,6 +52,20 @@ held = 0
 -- time management
 ticks = 0
 
+-- CC mode and values
+cc_mode = false  -- toggle between pattern and CC mode
+cc_values = {}   -- 8 tracks x 8 CCs x 127 values
+cc_channels = {} -- MIDI CC numbers for each track
+
+-- Initialize CC data structures
+for track = 1, 8 do
+    cc_values[track] = {}
+    cc_channels[track] = {1, 2, 3, 4, 5, 6, 7, 8} -- default CC numbers
+    for cc = 1, 8 do
+        cc_values[track][cc] = 64 -- default to middle value
+    end
+end
+
 
 
 tick = function()
@@ -103,27 +117,54 @@ grid = function(x,y,z)
 	-- if button press, which area is it in? 
 	if z==1 then
 		ps("press %d %d, held %d", x, y, held)
-		if y < 5 and x > 8  then
+		if x == 1 and y == 1 then
+			cc_mode = not cc_mode
+			held = 0  -- Reset held variable when switching modes
+			ps("mode: %s", cc_mode and "CC" or "Pattern")
+			redraw()
+		elseif cc_mode and y <= 4 and x > 8 then
+			-- CC mode: edit CC values (rows 1-4)
+			local cc_index = x - 8
+			local current_value = cc_values[track][cc_index]
+			
+			if y == 1 then
+				-- Top row: increase CC value (fine control)
+				cc_values[track][cc_index] = math.min(127, current_value + 1)
+			elseif y == 2 then
+				-- Second row: increment CC value by 10 (coarse control)
+				cc_values[track][cc_index] = math.min(127, current_value + 10)
+			elseif y == 3 then
+				-- Third row: decrement CC value by 10 (coarse control)
+				cc_values[track][cc_index] = math.max(0, current_value - 10)
+			elseif y == 4 then
+				-- Bottom row: decrease CC value (fine control)
+				cc_values[track][cc_index] = math.max(0, current_value - 1)
+			end
+			
+			ps("CC %d value %d for track %d", cc_index, cc_values[track][cc_index], track)
+			redraw()
+		elseif not cc_mode and y < 5 and x > 8  then
+			-- Pattern editing mode (only when not in CC mode)
+			ps("Pattern editing: x=%d y=%d cc_mode=%s", x, y, tostring(cc_mode))
 			held = held + 1 
 			if held == 1 then
-				ps("x %d y %d z %d",x,y,z)
+				-- Single button press: toggle note on/off
 				i = (x-8)+((y-1)*8)
+				ps("Pattern edit: track=%d step=%d current_value=%d", track, i, note[track][i])
 				if note[track][i] == 1 then 
 					note[track][i] = 0
-					--ps("note off %d %d",track,i)
+					ps("note off %d %d",track,i)
 				else 
 					note[track][i] = 1 
-					--ps("note on %d %d",track,i)
+					ps("note on %d %d",track,i)
 				end
 				redraw()
 			elseif held == 2 then
-				if note[track][i] == 1 then
-					note[track][i] = 0
-				else
-					note[track][i] = 1
-				end
-				length[track] = (x-8)+((y-1)*8)
-				ps("length %d", length[track])
+				-- Two buttons held: set pattern length
+				i = (x-8)+((y-1)*8)
+				length[track] = i
+				ps("Set pattern length to %d for track %d", length[track], track)
+				redraw()
 			end
 		elseif x == 2 then 
 			track = y
@@ -144,31 +185,6 @@ grid = function(x,y,z)
 			--ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
 			-- call the grid fill function
 			pattern_generate()
-			redraw()
-		elseif x == 1 and y == 1 then
-			cc_mode = not cc_mode
-			ps("mode: %s", cc_mode and "CC" or "Pattern")
-			redraw()
-		elseif cc_mode and y <= 4 and x > 8 then
-			-- CC mode: edit CC values
-			local cc_index = x - 8
-			local current_value = cc_values[track][cc_index]
-			
-			if y == 1 then
-				-- Top row: increase CC value (fine control)
-				cc_values[track][cc_index] = math.min(127, current_value + 1)
-			elseif y == 2 then
-				-- Second row: jump to CC value 60 (coarse control)
-				cc_values[track][cc_index] = 60
-			elseif y == 3 then
-				-- Third row: jump to CC value 80 (coarse control)
-				cc_values[track][cc_index] = 80
-			elseif y == 4 then
-				-- Bottom row: decrease CC value (fine control)
-				cc_values[track][cc_index] = math.max(0, current_value - 1)
-			end
-			
-			ps("CC %d value %d for track %d", cc_index, cc_values[track][cc_index], track)
 			redraw()
 		else
 			ps("do nothing")
@@ -215,27 +231,44 @@ redraw = function()
 			-- Calculate brightness for each row (1-4)
 			for row = 1, 4 do
 				local brightness = 0
-				local threshold = (row - 1) * 32  -- 0, 32, 64, 96
 				
-				if cc_value > threshold then
-					if row == 4 then
-						-- Bottom row: full brightness if value > 0
-						brightness = math.min(15, cc_value * 15 / 32)
-					elseif row == 3 then
-						-- Third row: brightness based on value 32-63
-						brightness = math.min(15, (cc_value - 32) * 15 / 32)
-					elseif row == 2 then
-						-- Second row: brightness based on value 64-95
-						brightness = math.min(15, (cc_value - 64) * 15 / 32)
-					elseif row == 1 then
-						-- Top row: brightness based on value 96-127
-						brightness = math.min(15, (cc_value - 96) * 15 / 32)
+				-- Row 1 (top): values 96-127
+				-- Row 2: values 64-95  
+				-- Row 3: values 32-63
+				-- Row 4 (bottom): values 0-31
+				
+				if row == 1 then
+					-- Top row: values 96-127
+					if cc_value >= 96 then
+						brightness = math.floor(math.min(15, (cc_value - 96) * 15 / 31))
+					end
+				elseif row == 2 then
+					-- Second row: values 64-95
+					if cc_value >= 64 and cc_value < 96 then
+						brightness = math.floor(math.min(15, (cc_value - 64) * 15 / 31))
+					elseif cc_value >= 96 then
+						brightness = 15  -- Full brightness if value is in higher range
+					end
+				elseif row == 3 then
+					-- Third row: values 32-63
+					if cc_value >= 32 and cc_value < 64 then
+						brightness = math.floor(math.min(15, (cc_value - 32) * 15 / 31))
+					elseif cc_value >= 64 then
+						brightness = 15  -- Full brightness if value is in higher range
+					end
+				elseif row == 4 then
+					-- Bottom row: values 0-31
+					if cc_value >= 0 and cc_value < 32 then
+						brightness = math.floor(math.min(15, cc_value * 15 / 31))
+					elseif cc_value >= 32 then
+						brightness = 15  -- Full brightness if value is in higher range
 					end
 				end
 				
 				-- Ensure brightness doesn't go negative
 				brightness = math.max(0, brightness)
 				grid_led(x+8, row, brightness)
+				-- ps("led %d %d %d cc %d %d", x+8, row, brightness, x, cc_value)
 			end
 		end
 	else
@@ -258,8 +291,8 @@ midi_rx = function(d1,d2,d3,d4)
 	if d1==8 and d2==240 then
 		ticks = ((ticks + 1) % 1)
 		if ticks == 0 and midi_clock_in then tick() end
-	else
-		ps("midi_rx %d %d %d %d",d1,d2,d3,d4)
+	-- else
+		-- ps("midi_rx %d %d %d %d",d1,d2,d3,d4)
 	end
 end
 
@@ -314,24 +347,13 @@ end
 
 redraw()
 
--- Add these to your existing data structures
-cc_mode = false  -- toggle between pattern and CC mode
-cc_values = {}   -- 8 tracks x 8 CCs x 127 values
-cc_channels = {} -- MIDI CC numbers for each track
 
--- Initialize CC data structures
-for track = 1, 8 do
-    cc_values[track] = {}
-    cc_channels[track] = {1, 2, 3, 4, 5, 6, 7, 8} -- default CC numbers
-    for cc = 1, 8 do
-        cc_values[track][cc] = 64 -- default to middle value
-    end
-end
 
 send_cc_for_track = function(track_num)
     for cc = 1, 8 do
         local cc_number = cc_channels[track_num][cc]
         local cc_value = cc_values[track_num][cc]
-        midi_cc(cc_number, cc_value)
+        midi_cc(cc_number, cc_value,track_num)
+		ps("cc %d %d %d", cc_number, cc_value, track_num)
     end
 end
