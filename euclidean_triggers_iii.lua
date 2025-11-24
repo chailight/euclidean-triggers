@@ -11,8 +11,8 @@ map = {0,1,2,3,4,5,6,7}
 ch = 0
 steps = {1,1,1,1,1,1,1,1}
 step = 1
-mute = {0,0,0,1,1,1,1}
-last = {0,0,0,0,0,0,0}
+mute = {0,0,0,0,0,0,0,0}
+last = {0,0,0,0,0,0,0,0}
 note = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -24,7 +24,7 @@ note = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 
 
 pattern_offset = 11 --x position for the trigger grid 
-track = 5 -- will be updated by the track select buttons on left
+track = 2 -- will be updated by the track select buttons on left
 --todo: change er variables to be arrays - one for each track
 er_n = {1,1,1,1,1,1,1,1}
 er_k = {1,1,1,1,1,1,1,1}
@@ -56,47 +56,53 @@ ticks = 0
 cc_mode = false  -- toggle between pattern and CC mode
 cc_values = {}   -- 8 tracks x 8 CCs x 127 values
 cc_channels = {} -- MIDI CC numbers for each track
+last_sent_cc = {} -- Track last sent CC values to avoid redundant sends
 
 -- Initialize CC data structures
 for track = 1, 8 do
     cc_values[track] = {}
     cc_channels[track] = {1, 2, 3, 4, 5, 6, 7, 8} -- default CC numbers
+    last_sent_cc[track] = {}
     for cc = 1, 8 do
-        cc_values[track][cc] = 64 -- default to middle value
+        cc_values[track][cc] = 0 -- default to middle value
+        last_sent_cc[track][cc] = 0 -- initialize last sent values
     end
 end
 
-
+-- Add a global variable to track which track last sent CCs
+last_cc_track = 0
 
 tick = function()
-    for i = 1, 7 do
-        clock_counter[i+1] = clock_counter[i+1] + 1
+    for i = 2, 8 do
+        clock_counter[i] = clock_counter[i] + 1
 
         -- handle active note releases
-        if release_counter[i+1] > 0 then
-            release_counter[i+1] = release_counter[i+1] - 1
-            if release_counter[i+1] == 0 and playing[i+1] then
-                midi_note_off(map[i+1])
-                playing[i+1] = false
+        if release_counter[i] > 0 then
+            release_counter[i] = release_counter[i] - 1
+            if release_counter[i] == 0 and playing[i] then
+                midi_note_off(map[i])
+                playing[i] = false
             end
         end
 
-        if clock_counter[i+1] >= clock_divider[i+1] then
-            clock_counter[i+1] = 0  -- reset divider counter
+        if clock_counter[i] >= clock_divider[i] then
+            clock_counter[i] = 0  -- reset divider counter
 
             -- advance step
-            steps[i+1] = (steps[i+1] % length[i+1]) + 1
+            steps[i] = (steps[i] % length[i]) + 1
 
-            if note[i+1][steps[i+1]] == 1 and mute[i] == 1 then
-                -- Always send CC values to shape the sound for this track
-                send_cc_for_track(i+1)
+            if note[i][steps[i]] == 1 and mute[i] == 1 then
+                -- Send CC values only if they've changed (for tracks 2-4)
+                if i >= 2 and i <= 4 then
+                    send_cc_if_changed(i)
+                end
                 
                 -- Send MIDI note
-                local pitch = map[i+1]
+                local pitch = map[i]
                 midi_note_on(pitch)
-                playing[i+1] = true
+                playing[i] = true
                 -- schedule note off
-                release_counter[i+1] = clock_divider[i+1] - 1
+                release_counter[i] = clock_divider[i] - 1
             end
         end
     end
@@ -171,8 +177,8 @@ grid = function(x,y,z)
 			midi_cc(127,track - 1) -- set the current "track" indicator
 			ps("track %d",track)
 		elseif x == 1 and y > 1 then
-			if mute[y-1] == 1 then mute[y-1] = 0
-			else mute[y-1] = 1
+			if mute[y] == 1 then mute[y] = 0
+			else mute[y] = 1
 			end
 		elseif x > 10 and y == 8 then
 			clock_divider[track] = clock_map[x - 10]
@@ -186,6 +192,10 @@ grid = function(x,y,z)
 			-- call the grid fill function
 			pattern_generate()
 			redraw()
+		elseif x > 3 and x < 8 and y > 1 and y < 5 then
+			sample_trig = ((y-2)*4)+(x-3)+35
+                	midi_note_on(sample_trig,100,5)
+			ps("sample_trig, %d",sample_trig)
 		else
 			ps("do nothing")
 		end
@@ -203,11 +213,17 @@ redraw = function()
 	grid_led(j+8,k,5)
 	-- mute
 	for n=2,8 do
-		grid_led(1,n,mute[n-1]==1 and 15 or 1)
+		grid_led(1,n,mute[n]==1 and 15 or 1)
 	end
 	-- edit select
 	for n=2,8 do
 		grid_led(2,n,track==n and 15 or 1)
+	end
+	-- sample pads
+	for n = 4,7 do
+		grid_led(n,2, 1)
+		grid_led(n,3, 1)
+		grid_led(n,4, 1)
 	end
 	-- euclidean controls
 	for n=5,16 do
@@ -355,5 +371,41 @@ send_cc_for_track = function(track_num)
         local cc_value = cc_values[track_num][cc]
         midi_cc(cc_number, cc_value,track_num)
 		ps("cc %d %d %d", cc_number, cc_value, track_num)
+    end
+end
+
+send_cc_if_changed = function(track_num)
+    -- Only send CCs for tracks 2-4 (BIA control tracks)
+    if track_num < 2 or track_num > 4 then
+        return
+    end
+    
+    -- Check if this track should take precedence over higher tracks
+    local should_send = true
+    for lower_track = 2, track_num - 1 do
+        if playing[lower_track] then
+            -- Lower track is currently playing, this track doesn't take precedence
+            should_send = false
+            break
+        end
+    end
+    
+    if should_send then
+        -- Send CCs if values have changed OR if this is a different track than last time
+        local force_send = (last_cc_track ~= track_num)
+        
+        for cc = 1, 8 do
+            local cc_number = cc_channels[track_num][cc]
+            local cc_value = cc_values[track_num][cc]
+            
+            if force_send or cc_value ~= last_sent_cc[track_num][cc] then
+                midi_cc(cc_number, cc_value, track_num)
+                last_sent_cc[track_num][cc] = cc_value
+                ps("cc %d %d %d (track %d) %s", cc_number, cc_value, track_num, track_num, force_send and "forced" or "changed")
+            end
+        end
+        
+        -- Update which track last sent CCs
+        last_cc_track = track_num
     end
 end
