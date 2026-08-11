@@ -1,11 +1,10 @@
-print("step")
 
 
 -- change this to toggle clock input:
-midi_clock_in = true 
+midi_clock_in = false 
 
 -- change these for different notes:
---map = {0,1,2,3,36,37,38,39}
+-- map = {0,1,2,3,36,37,38,39}
 map = {0,1,2,3,4,5,6,7}
 
 ch = 0
@@ -23,20 +22,20 @@ note = {{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
 {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}}
 
 
-pattern_offset = 11 --x position for the trigger grid 
+pattern_offset = 11 -- x position for the trigger grid 
 track = 2 -- will be updated by the track select buttons on left
---todo: change er variables to be arrays - one for each track
+-- todo: change er variables to be arrays - one for each track
 er_n = {1,1,1,1,1,1,1,1}
 er_k = {1,1,1,1,1,1,1,1}
 er_w = {1,1,1,1,1,1,1,1}
 
---clock dividers
+-- clock dividers
 clock_divider = {6,6,6,6,6,6,6,6}
 clock_counter = {0,0,0,0,0,0,0,0}
 release_counter = {0,0,0,0,0,0,0,0}
 clock_map = {3,4,6,8,9,36}
 
---todo: add a per track length
+-- todo: add a per track length
 length = {32,32, 32, 32, 32, 32, 32, 32}
 
 -- note tracking
@@ -72,7 +71,7 @@ end
 -- Add a global variable to track which track last sent CCs
 last_cc_track = 0
 
-tick = function()
+function tick()
     for i = 2, 8 do
         clock_counter[i] = clock_counter[i] + 1
 
@@ -106,12 +105,13 @@ tick = function()
             end
         end
     end
-    redraw()
+    -- redraw()
+    dirty = true
 end
 
 
 
-grid = function(x,y,z)
+function event_grid(x,y,z)
 	if z==0 then 
 		if y < 5 and x > 8 then
 			held = held - 1
@@ -127,7 +127,8 @@ grid = function(x,y,z)
 			cc_mode = not cc_mode
 			held = 0  -- Reset held variable when switching modes
 			ps("mode: %s", cc_mode and "CC" or "Pattern")
-			redraw()
+			-- redraw()
+			dirty = true
 		elseif cc_mode and y <= 4 and x > 8 then
 			-- CC mode: edit CC values (rows 1-4)
 			local cc_index = x - 8
@@ -148,7 +149,8 @@ grid = function(x,y,z)
 			end
 			
 			ps("CC %d value %d for track %d", cc_index, cc_values[track][cc_index], track)
-			redraw()
+			-- redraw()
+			dirty = true
 		elseif not cc_mode and y < 5 and x > 8  then
 			-- Pattern editing mode (only when not in CC mode)
 			ps("Pattern editing: x=%d y=%d cc_mode=%s", x, y, tostring(cc_mode))
@@ -164,13 +166,16 @@ grid = function(x,y,z)
 					note[track][i] = 1 
 					ps("note on %d %d",track,i)
 				end
-				redraw()
+				-- redraw()
+				dirty = true
+
 			elseif held == 2 then
 				-- Two buttons held: set pattern length
 				i = (x-8)+((y-1)*8)
 				length[track] = i
 				ps("Set pattern length to %d for track %d", length[track], track)
-				redraw()
+				-- redraw()
+				dirty = true
 			end
 		elseif x == 2 then 
 			track = y
@@ -183,7 +188,8 @@ grid = function(x,y,z)
 		elseif x > 10 and y == 8 then
 			clock_divider[track] = clock_map[x - 10]
     			--ps("clock divider for track %d: %d", track, clock_divider[track])
-			redraw()
+			-- redraw()
+			dirty = true
 		elseif x > 4 and y > 5 then
 			if y == 6 then er_k[track] = x - 4 end
 			if y == 7 then er_n[track] = x - 4 end
@@ -191,7 +197,8 @@ grid = function(x,y,z)
 			--ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
 			-- call the grid fill function
 			pattern_generate()
-			redraw()
+			-- redraw()
+			dirty = true
 		elseif x > 3 and x < 8 and y > 1 and y < 5 then
 			sample_trig = ((y-2)*4)+(x-3)+35
                 	midi_note_on(sample_trig,100,5)
@@ -202,7 +209,7 @@ grid = function(x,y,z)
 	end
 end
 
-redraw = function()
+function redraw()
 	grid_led_all(0)
 	
 	-- Show mode indicator
@@ -303,16 +310,16 @@ redraw = function()
 	grid_refresh()
 end
 
-midi_rx = function(d1,d2,d3,d4)
-	if d1==8 and d2==240 then
-		ticks = ((ticks + 1) % 1)
-		if ticks == 0 and midi_clock_in then tick() end
-	-- else
-		-- ps("midi_rx %d %d %d %d",d1,d2,d3,d4)
-	end
-end
+-- midi_clock = function(d1,d2,d3)
+-- 	if d1==8 and d2==240 then
+-- 		ticks = ((ticks + 1) % 1)
+-- 		if ticks == 0 and midi_clock_in then tick() end
+-- 	-- else
+-- 		-- ps("mdi_clock %d %d %d",d1,d2,d3)
+-- 	end
+-- end
 
-er = function(n,k,w)
+function er(n,k,w)
    w = w or 0
    -- results array, intially all zero
    local r = {}
@@ -337,7 +344,7 @@ er = function(n,k,w)
    return r
 end
 
-pattern_generate = function()
+function pattern_generate()
    -- generate the er pattern
    p = {}
    p = er(er_n[track], er_k[track], er_w[track] - 1)
@@ -354,18 +361,10 @@ pattern_generate = function()
    end
 end
 
--- begin
-
-if not midi_clock_in then
-	-- 150ms per step
-	metro.new(tick, 150)
-end
-
-redraw()
 
 
 
-send_cc_for_track = function(track_num)
+function send_cc_for_track(track_num)
     for cc = 1, 8 do
         local cc_number = cc_channels[track_num][cc]
         local cc_value = cc_values[track_num][cc]
@@ -374,7 +373,7 @@ send_cc_for_track = function(track_num)
     end
 end
 
-send_cc_if_changed = function(track_num)
+function send_cc_if_changed (track_num)
     -- Only send CCs for tracks 2-4 (BIA control tracks)
     if track_num < 2 or track_num > 4 then
         return
@@ -409,3 +408,24 @@ send_cc_if_changed = function(track_num)
         last_cc_track = track_num
     end
 end
+
+function re()
+  if dirty then
+    dirty = false
+    redraw()
+  end
+end
+
+-- begin
+
+-- if not midi_clock_in then
+	-- 150ms per step
+m = metro.init(tick, .05)
+m:start()
+r = metro.init(re, .015)
+r:start()
+print("euclidean steps")
+
+-- end
+
+-- redraw()

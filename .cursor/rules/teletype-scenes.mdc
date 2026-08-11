@@ -1,0 +1,40 @@
+---
+description: Teletype scene scripts — 6-line and 31-character limits, splitting patterns
+globs: teletype*.txt
+alwaysApply: false
+---
+
+# Teletype scene constraints
+
+All generated or edited Teletype scene files (`teletype*.txt`) MUST comply with firmware limits ([Teletype studies / `state.h`](https://github.com/monome/teletype)):
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Lines per script | **6 max** | Applies to `#1`–`#8`, `#M`, and `#I` — count only non-empty command lines |
+| Characters per line | **31 max** | `LINE_EDITOR_SIZE` 32 incl. null; longer lines are rejected or truncated |
+| Words per command | **16 max** | `COMMAND_MAX_LENGTH` — space-separated tokens (ops, values, mods) |
+
+## Before finishing a scene edit
+
+1. Count non-empty lines in **each** `#1`…`#8`, `#M`, and `#I` block — none may exceed 6.
+2. Check every command line length ≤ 31 characters (use semicolons sparingly; they count).
+3. Prefer short aliases: `TR.P`, `BRK`, `PN`, `$F1`, `$S1`, `$L1`.
+4. Pack only **short** statements with `;` on one line (e.g. `J * MI.N 4; X 1`). Do not merge long `CV … VV PN 0 + J n` lines — they exceed 31 chars in pairs.
+
+## Splitting across scripts
+
+When logic does not fit in 6 lines:
+
+- **Entry script** (e.g. `#1` on MIDI/trigger): batch loop, hit flag, single `TR.P 1`, then `BREAK`.
+- **Helper script(s)**: CV/output logic invoked via **`$F1` / `$F2`**, **`$S1`**, **`$L1`**, or **`SCRIPT n`**.
+- **`BREAK` / `BRK`**: place before library/helper lines in the entry script so top-down execution stops after the active block.
+- **`$F1 script I`**: passes loop index as `I1`; callee reads indexed MIDI ops (`MI.N`, `MI.NCH`) using inherited loop `I`.
+- Chain scripts when needed (e.g. script 2 sets `J` and first CVs, **`SCRIPT 3`** for remaining CV lines).
+
+Reference working layout: `teletype-bia-v2.txt` (BIA CV presets split across `#1` + `#2`).
+
+## Anti-patterns
+
+- Do not put `$S1` helper libraries **and** full CV output **and** filters in one 6-line script when totals exceed limits.
+- Do not rely on lines after the 6th — Teletype ignores them.
+- Do not assume USB-loaded scenes tolerate longer lines than hardware edit mode.

@@ -1,6 +1,10 @@
 -- steps = 16
 -- step = 1
 
+pset_init('eucliiidean_pulse')
+
+midi_clock_in = true
+
 map = {0,1,2,3,4,5,6,7}
 
 ch = 0
@@ -37,6 +41,12 @@ er_n = {1,1,1,1,1,1,1,1}
 er_k = {1,1,1,1,1,1,1,1}
 er_w = {1,1,1,1,1,1,1,1}
 
+vel_default = {10,10,10,10,10,10,10,10}
+pitch_default = {0,0,0,0,0,0,0,0}
+prob_default = {8,8,8,8,8,8,8,8}
+swing = {0,0,0,0,0,0,0,0}
+-- swing_map = {0, 0.25, 0.5, 0.75, 1, 1.25}
+
 -- clock dividers
 clock_divider = {6,6,6,6,6,6,6,6}
 clock_counter = {0,0,0,0,0,0,0,0}
@@ -55,6 +65,10 @@ end
 
 -- grid key held
 held = 0
+held_step = 0
+
+-- alt key for preset management
+alt = false
 
 -- time management
 ticks = 0
@@ -117,12 +131,14 @@ function tick ()
                 
                 -- Send MIDI note
                 local pitch = note_data.pitch or map[i]
-                local velocity = note_data.velocity or 100
-                local probability = note_data.probability or 1
-                midi_note_on(pitch, velocity, 1)
-                playing[i] = true
-                -- schedule note off
-                release_counter[i] = clock_divider[i] - 1
+                local velocity = (note_data.velocity or vel_default[i])*10 
+                local probability = (note_data.probability or prob_default[i]) / 8 
+                if math.random() <= probability then
+                    midi_note_on(pitch, velocity, 1)
+                    playing[i] = true
+                    -- schedule note off
+                    release_counter[i] = clock_divider[i] - 1
+                end
             end
         end
     end
@@ -160,17 +176,6 @@ function redraw()
 		grid_led(n,3, 1)
 		grid_led(n,4, 1)
 	end
-    	for n=5,16 do
-		grid_led(n,6,(er_k[track] == (n-4)) and 15 or 1)
-		grid_led(n,7,(er_n[track] == (n-4)) and 15 or 1)
-	end
-	for n=5,10 do
-		grid_led(n,8,(er_w[track] == (n-4)) and 15 or 1)
-	end
-	-- clock divider 
-	for n=11,16 do
-		grid_led(n,8,(clock_divider[track] == clock_map[n - 10]) and 15 or 1)
-	end
     -- trigger editing
     if page == 1 then
         j = ((steps[track]%length[track] - 1) % 8) + 1
@@ -187,8 +192,72 @@ function redraw()
                 grid_led(x+8,y,steps[track]%(length[track]+1)==n and 15 or 1)
             end
         end
+        -- ER parameters
+        for n=5,16 do
+            grid_led(n,6,(er_k[track] == (n-4)) and 15 or 1)
+            grid_led(n,7,(er_n[track] == (n-4)) and 15 or 1)
+        end
+        for n=5,10 do
+            grid_led(n,8,(er_w[track] == (n-4)) and 15 or 1)
+        end
+        -- clock divider 
+        for n=11,16 do
+            grid_led(n,8,(clock_divider[track] == clock_map[n - 10]) and 15 or 1)
+        end
     -- note velocity and probability editing
     elseif page == 2 then
+        for n=1,length[track] do
+            x = ((n - 1) % 8) + 1
+            y = math.floor((n -1) / 8) + 1
+            note_data = note[track] and note[track][n] 
+            if note_data and note_data.on then
+                --ps("track %d step %d i %d", track, n, i)
+                -- to do: increase brightness for steps with p-locks
+                grid_led(x+8,y,steps[track]%(length[track]+1)==n and 15 or 5)
+            else
+                grid_led(x+8,y,steps[track]%(length[track]+1)==n and 15 or 1)
+            end
+        end
+        -- note parameters
+        -- to do: fix up showing the p-lock values when the step is held - currently it only shows the defaults, not the actual p-lock values for the step
+        if held == 1 then
+            note_data = note[track] and note[track][held_step]  
+            if note_data and note_data.pitch then 
+                plock_pitch = note_data.pitch
+            else
+                plock_pitch = pitch_default[track] 
+            end
+            if note_data and note_data.velocity then 
+                plock_velocity = note_data.velocity
+            else
+                plock_velocity = vel_default[track] 
+            end
+            if note_data and note_data.probability then 
+                plock_probability = note_data.probability
+            else
+                plock_probability = prob_default[track] 
+            end
+            ps("held step %d: %d %d %d", held_step, plock_pitch, plock_velocity, plock_probability)
+            for n=5,16 do
+                grid_led(n,6,(plock_pitch == (n-4)) and 15 or 1)
+                grid_led(n,7,(plock_velocity == (n-4)) and 15 or 1)
+            end
+            for n=5,12 do
+                grid_led(n,8,(plock_probability == (n-4)) and 15 or 1)
+            end
+        else
+            for n=5,16 do
+                grid_led(n,6,(pitch_default[track] == (n-4)) and 15 or 1)
+                grid_led(n,7,(vel_default[track] == (n-4)) and 15 or 1)
+            end
+            for n=5,12 do
+                grid_led(n,8,(prob_default[track] == (n-4)) and 15 or 1)
+            end
+        end
+        -- swing 
+        for n=13,16 do
+            grid_led(n,8,(swing[track] == (n - 12)) and 15 or 1)
+        end
     -- CC editing
     elseif page == 3 then
         -- Show CC values for current track as brightness levels
@@ -251,6 +320,17 @@ function redraw()
 		end
     -- preset management
     elseif page == 4 then
+        grid_led(8,1,alt and 15 or 1)
+        for x = 1, 8 do
+			local cc_value = cc_values[track][x]
+			local cc_index = x
+			
+			-- Calculate brightness for each row (1-4)
+			for row = 1, 4 do
+				local brightness = 1
+				grid_led(x+8, row, brightness)
+            end
+        end
     end
 
 	grid_refresh()
@@ -261,7 +341,16 @@ function event_grid(x,y,z)
 		if y < 5 and x > 8 then
 			held = held - 1
 			ps("release %d %d, held %d", x, y, held)
+            if held == 0 then
+                held_step = 0
+            end
+        elseif page == 4 and x == 7 and y == 1  then
+            alt = false
 		end
+		-- if x > 4 and y > 5 then
+		-- 	held = held - 1
+		-- 	ps("release %d %d, held %d", x, y, held)
+		-- end
 		return 
 	end
     if z == 1 then
@@ -275,14 +364,14 @@ function event_grid(x,y,z)
 			page = x - 3
 			held = 0  -- Reset held variable when switching modes
 			ps("page: %d", page)
-        elseif x > 4 and y > 5 then
+        elseif page == 1 and x > 4 and y > 5 then
             if y == 6 then er_k[track] = x - 4 end
             if y == 7 then er_n[track] = x - 4 end
             if y == 8 and x < 11 then er_w[track] = x - 4 end
             --ps("k %d n %d w %d",er_k[track], er_n[track], er_w[track])
             -- call the grid fill function
             pattern_generate()
-        elseif x > 10 and y == 8 then
+        elseif page == 1 and x > 10 and y == 8 then
             clock_divider[track] = clock_map[x - 10]
             --ps("clock divider for track %d: %d", track, clock_divider[track])
         elseif page == 1 and y < 5 and x > 8  then
@@ -307,6 +396,27 @@ function event_grid(x,y,z)
 				length[track] = i
 				ps("Set pattern length to %d for track %d", length[track], track)
             end
+        elseif page == 2 and y < 5 and x > 8  then
+			held = held + 1 
+			i = (x-8)+((y-1)*8)
+            held_step = i
+        elseif page == 2 and x > 4 and y > 5 then
+            if held == 0 then
+                if y == 6 then pitch_default[track] = x - 4 end
+                if y == 7 then vel_default[track] = x - 4 end
+                if y == 8 and x < 13 then prob_default[track] = x - 4 end
+            ps("defaults for track %d: %d %d %d", track, pitch_default[track], vel_default[track], prob_default[track])
+            elseif held == 1 and held_step > 0 then
+                note[track] = note[track] or {}
+                note[track][held_step] = note[track][held_step] or { on = true }
+                if y == 6 then note[track][held_step].pitch = x - 4 end
+                if y == 7 then note[track][held_step].velocity = x - 4 end
+                if y == 8 and x < 13 then note[track][held_step].probability = x - 4 end
+                --ps("p-lock for track %d, step %d: %d %d %d", track, i, note[track][i].pitch, note[track][i].velocity, note[track][i].probability)
+            end
+        elseif page == 2 and x > 10 and y == 8 then
+            swing[track] = x - 10
+            --ps("clock divider for track %d: %d", track, clock_divider[track])
         elseif page == 3 and y < 5 and x > 8  then
 			-- CC editing mode 
             local cc_index = x - 8
@@ -325,6 +435,16 @@ function event_grid(x,y,z)
 				-- Bottom row: decrease CC value (coarse control)
 				cc_values[track][cc_index] = math.max(0, current_value - 10)
 			end
+        elseif page == 4 and x == 8 and y == 1  then
+            alt = true 
+        elseif page == 4 and y < 5 and x > 8  then
+            if alt then
+                preset_save((x - 8)* ((y-1)*8))
+                ps("Saved preset %d", (x - 8) + ((y-1)*8))
+            else
+                preset_load((x - 8) + ((y-1)*8))
+                ps("Loaded preset %d", (x - 8) + ((y-1)*8))
+            end
         elseif x > 3 and x < 8 and y > 1 and y < 5 then
 			sample_trig = ((y-2)*4)+(x-3)+35
                 	midi_note_on(sample_trig,100,5)
@@ -376,6 +496,38 @@ function pattern_generate()
 	else note[track][i] = { on = false }
 	end
    end
+end
+
+preset_save = function(id)
+    local data = {
+        note = note,
+        er_n = er_n,
+        er_k = er_k,
+        er_w = er_w,
+        clock_divider = clock_divider,
+        length = length,
+        pitch_default = pitch_default,
+        vel_default = vel_default,
+        prob_default = prob_default,
+        swing = swing
+    }
+    pset_write(id, preset) 
+end
+
+preset_load = function(id)
+    local data = pset_read(id) 
+    if data then
+        note = preset.note or note
+        er_n = preset.er_n or er_n
+        er_k = preset.er_k or er_k
+        er_w = preset.er_w or er_w
+        clock_divider = preset.clock_divider or clock_divider
+        length = preset.length or length
+        pitch_default = preset.pitch_default or pitch_default
+        vel_default = preset.vel_default or vel_default
+        prob_default = preset.prob_default or prob_default
+        swing = preset.swing or swing
+    end
 end
 
 function re()

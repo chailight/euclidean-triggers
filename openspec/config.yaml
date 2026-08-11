@@ -1,0 +1,27 @@
+schema: spec-driven
+
+context: |
+  Eurorack + monome grid project: Norns/grid Lua sequencers and Teletype scene
+  files for CV/trigger control (e.g. Noise Engineering Bia).
+
+  Teletype scenes are plain-text USB scene files (`teletype*.txt`). Every script
+  block (#1–#8, #M, #I) must respect hardware limits: **6 lines max**, **31
+  characters max per line**, **16 words max per command**. Split logic across
+  scripts using $F1/$F2, $S1, $L1, SCRIPT, and BREAK as documented in
+  `.cursor/rules/teletype-scenes.mdc`.
+
+# Per-artifact rules (optional)
+rules:
+  design:
+    - State which script numbers hold entry vs helper logic when splitting across scripts
+    - Verify the proposed scene fits 6 lines × 31 characters per script before marking design complete
+  specs:
+    - Any Teletype scene requirement MUST cite the 6-line and 31-character limits where script layout is normative
+  tasks:
+    - Include a verification step: count non-empty lines per script and max line length in generated teletype*.txt files
+
+# Per-operation guidance (optional)
+operations:
+  apply:
+    guidance:
+      - After editing teletype*.txt, confirm each script block has ≤6 non-empty lines and each line ≤31 characters
